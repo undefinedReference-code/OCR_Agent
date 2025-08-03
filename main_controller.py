@@ -3,10 +3,12 @@ import time
 import keyboard
 import pyautogui
 from main_view import MainView
+from ocr_service import OCRService
 
 class MainController:
     def __init__(self):
         self.mainView = MainView()
+        self.ocrService = OCRService()  # Add OCR service
         self.screenshot = None
         self.start_x = None
         self.start_y = None
@@ -132,9 +134,25 @@ class MainController:
         print("[Controller] Showing screenshot preview")
         self.mainView.show_screenshot_preview(cropped_image, self.selected_area)
         
+        # Start OCR recognition asynchronously
+        print("[Controller] Starting OCR recognition")
+        self.start_ocr_recognition(cropped_image)
+        
         # Reset controller state after preview is shown
         print("[Controller] Resetting controller state")
         self.reset_controller_state()
+    
+    def start_ocr_recognition(self, image):
+        """Start OCR recognition for the cropped image"""
+        def ocr_callback(result):
+            """Callback function to handle OCR result"""
+            print(f"[Controller] OCR recognition completed")
+            # Update view with OCR result (execute in main thread)
+            if self.mainView.root:
+                self.mainView.root.after(0, lambda: self.mainView.update_ocr_result(result))
+        
+        # Start async OCR recognition
+        self.ocrService.recognize_async(image, ocr_callback)
          
     def cancel_screenshot(self):
         """Cancel screenshot operation"""

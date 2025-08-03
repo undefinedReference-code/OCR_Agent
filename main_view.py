@@ -17,6 +17,7 @@ class MainView:
         self.root = None
         self.preview_window = None
         self.capture_toplevel = None
+        self.ocr_text_widget = None  # Add OCR text widget reference
 
     def setup_event_handlers(self, event_handlers: Dict[str, Callable]):
         """Public interface to setup event handlers"""
@@ -217,7 +218,7 @@ class MainView:
             self.info_text_id = None
             
     def show_screenshot_preview(self, cropped_image, selected_area):
-        """Show screenshot preview in new window"""
+        """Show screenshot preview in new window with OCR result area"""
         print("[View] Creating screenshot preview window")
         
         # Ensure main window exists
@@ -235,16 +236,16 @@ class MainView:
         self.preview_window = tk.Toplevel(self.root)
         self.preview_window.title("截图预览 - Screenshot Preview")
         
-        # Calculate window size based on image size
+        # Calculate window size - make it larger to accommodate OCR results
         img_width, img_height = cropped_image.size
         
-        # Set maximum window size
-        max_width = 800
-        max_height = 600
+        # Set maximum image display size
+        max_img_width = 600
+        max_img_height = 500
         
         # Calculate display size while maintaining aspect ratio
-        if img_width > max_width or img_height > max_height:
-            ratio = min(max_width / img_width, max_height / img_height)
+        if img_width > max_img_width or img_height > max_img_height:
+            ratio = min(max_img_width / img_width, max_img_height / img_height)
             display_width = int(img_width * ratio)
             display_height = int(img_height * ratio)
             # Resize image for display
@@ -254,9 +255,9 @@ class MainView:
             display_height = img_height
             display_image = cropped_image
         
-        # Set window size (add padding for UI elements)
-        window_width = display_width + 40
-        window_height = display_height + 120
+        # Set window size (wider to accommodate OCR results)
+        window_width = max(display_width + 500, 1000)  # Minimum width 1000, extra 500 for OCR
+        window_height = max(display_height + 120, 600)  # Minimum height 600
         
         # Center window on screen
         screen_width = self.preview_window.winfo_screenwidth()
@@ -265,13 +266,13 @@ class MainView:
         y = (screen_height - window_height) // 2
         
         self.preview_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.preview_window.resizable(False, False)
+        self.preview_window.resizable(True, True)
         
-        # Create main frame
+        # Create main frame with horizontal layout
         main_frame = tk.Frame(self.preview_window, bg='white')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Info label
+        # Info label at top
         left, top, right, bottom = selected_area
         info_text = f"截图区域: {right-left}x{bottom-top} 像素 | 位置: ({left}, {top}) 到 ({right}, {bottom})"
         info_label = tk.Label(
@@ -281,22 +282,67 @@ class MainView:
             bg='white',
             fg='gray'
         )
-        info_label.pack(pady=(0, 10))
+        info_label.pack(fill=tk.X, pady=(0, 10))
         
-        # Image display frame
-        image_frame = tk.Frame(main_frame, bg='white', relief=tk.SUNKEN, bd=2)
-        image_frame.pack(pady=(0, 10))
+        # Create horizontal paned window for image and OCR results
+        paned_window = tk.PanedWindow(main_frame, orient=tk.HORIZONTAL, bg='white', sashrelief=tk.RAISED, sashwidth=5)
+        paned_window.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Left panel - Image display
+        image_frame = tk.Frame(paned_window, bg='white', relief=tk.SUNKEN, bd=2)
+        
+        # Image title
+        image_title = tk.Label(image_frame, text="Screenshot Preview", font=('Arial', 12, 'bold'), bg='white')
+        image_title.pack(pady=(10, 5))
         
         # Convert PIL image to PhotoImage and display
         self.preview_image = ImageTk.PhotoImage(display_image)
         image_label = tk.Label(image_frame, image=self.preview_image, bg='white')
-        image_label.pack(padx=5, pady=5)
+        image_label.pack(padx=10, pady=5)
         
-        # Button frame
+        paned_window.add(image_frame, minsize=300)
+        
+        # Right panel - OCR results
+        ocr_frame = tk.Frame(paned_window, bg='white', relief=tk.SUNKEN, bd=2)
+        
+        # OCR title
+        ocr_title = tk.Label(ocr_frame, text="OCR Recognition Results", font=('Arial', 12, 'bold'), bg='white')
+        ocr_title.pack(pady=(10, 5))
+        
+        # OCR status label
+        self.ocr_status_label = tk.Label(
+            ocr_frame, 
+            text="🔄 OCR recognition in progress...",
+            font=('Arial', 10),
+            bg='white',
+            fg='blue'
+        )
+        self.ocr_status_label.pack(pady=5)
+        
+        # OCR results text area
+        ocr_text_frame = tk.Frame(ocr_frame, bg='white')
+        ocr_text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.ocr_text_widget = scrolledtext.ScrolledText(
+            ocr_text_frame,
+            wrap=tk.WORD,
+            width=40,
+            height=20,
+            font=('Arial', 10)
+        )
+        self.ocr_text_widget.pack(fill=tk.BOTH, expand=True)
+        
+        # Initially show loading message
+        self.ocr_text_widget.insert(tk.END, "OCR recognition is running...\nPlease wait for the results.")
+        self.ocr_text_widget.config(state=tk.DISABLED)
+        
+        paned_window.add(ocr_frame, minsize=400)
+        
+        # Button frame at bottom
         button_frame = tk.Frame(main_frame, bg='white')
-        button_frame.pack(fill=tk.X)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        # Save button
+        # Save Image button
         save_button = tk.Button(
             button_frame,
             text="保存图片",
@@ -309,18 +355,18 @@ class MainView:
         )
         save_button.pack(side=tk.LEFT, padx=(0, 10))
         
-        # OCR button (placeholder for future implementation)
-        ocr_button = tk.Button(
+        # Copy OCR Result button
+        copy_button = tk.Button(
             button_frame,
-            text="开始OCR识别",
-            command=lambda: self._start_ocr_processing(cropped_image),
+            text="Copy OCR Result",
+            command=self._copy_ocr_result,
             bg='#2196F3',
             fg='white',
             font=('Arial', 10),
             padx=20,
             relief=tk.FLAT
         )
-        ocr_button.pack(side=tk.LEFT, padx=(0, 10))
+        copy_button.pack(side=tk.LEFT, padx=(0, 10))
         
         # Close button
         close_button = tk.Button(
@@ -343,6 +389,48 @@ class MainView:
         self.preview_window.focus_set()
         
         print(f"[View] Screenshot preview window created: {img_width}x{img_height} pixels")
+    
+    def update_ocr_result(self, result: str):
+        """Update OCR result in the preview window"""
+        if self.preview_window and self.ocr_text_widget:
+            print("[View] Updating OCR result")
+            
+            # Update status label
+            self.ocr_status_label.config(
+                text="✅ OCR recognition completed",
+                fg='green'
+            )
+            
+            # Update text widget
+            self.ocr_text_widget.config(state=tk.NORMAL)
+            self.ocr_text_widget.delete(1.0, tk.END)
+            self.ocr_text_widget.insert(tk.END, result)
+            self.ocr_text_widget.config(state=tk.NORMAL)  # Keep editable for copying
+            
+            print("[View] OCR result updated successfully")
+        else:
+            print("[View] Warning: Preview window or OCR text widget not available")
+
+    def _copy_ocr_result(self):
+        """Copy OCR result to clipboard"""
+        if self.ocr_text_widget:
+            try:
+                content = self.ocr_text_widget.get(1.0, tk.END).strip()
+                if content and content != "OCR recognition is running...\nPlease wait for the results.":
+                    self.preview_window.clipboard_clear()
+                    self.preview_window.clipboard_append(content)
+                    
+                    # Show success message
+                    messagebox.showinfo("Copy Successful", "OCR recognition result copied to clipboard!")
+                    print("[View] OCR result copied to clipboard")
+                else:
+                    messagebox.showwarning("Copy Failed", "No OCR result available to copy")
+                    
+            except Exception as e:
+                messagebox.showerror("Copy Failed", f"Failed to copy to clipboard: {e}")
+                print(f"[View] Copy error: {e}")
+        else:
+            messagebox.showwarning("Copy Failed", "OCR result not available")
 
     def _close_preview_window(self):
         """Safely close preview window"""
@@ -355,6 +443,7 @@ class MainView:
             finally:
                 self.preview_window = None
                 self.preview_image = None
+                self.ocr_text_widget = None
             
     def _save_screenshot(self, image):
         """Save screenshot to file"""
@@ -389,12 +478,6 @@ class MainView:
             error_msg = f"保存失败: {str(e)}"
             messagebox.showerror("保存失败", error_msg)
             print(f"[View] Save error: {e}")
-    
-    def _start_ocr_processing(self, image):
-        """Start OCR processing (placeholder)"""
-        print("[View] OCR processing requested")
-        messagebox.showinfo("OCR功能", "OCR识别功能将在后续版本中实现")
-        # TODO: Implement OCR processing here
             
     def close_capture_window(self):
         """Close capture window only"""
