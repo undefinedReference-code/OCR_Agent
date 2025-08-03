@@ -1,9 +1,7 @@
-
-
-
-from typing import Callable
-from addict import Dict
-
+from typing import Callable, Dict
+import tkinter as tk
+from PIL import ImageTk
+import pyautogui
 
 class MainView:
     def __init__(self):
@@ -15,14 +13,15 @@ class MainView:
         self.result_text = None
         self.bg_image = None
         self.rect_id = None
+        self.root = None
+        
+    def setup_event_handlers(self, event_handlers: Dict[str, Callable]):
+        """Public interface to setup event handlers"""
+        self._store_event_handlers(event_handlers)
         
     def _store_event_handlers(self, event_handlers: Dict[str, Callable]):
-        """
-        Store event handler functions - Core of dependency injection
-        
-        This injects Controller methods into View without creating circular reference
-        """
-        print(f"[View] Storing event handler functions")
+        """Store event handler functions - Core of dependency injection"""
+        print("[View] Storing event handler functions")
         
         # Separate mouse and keyboard event handler functions
         self._mouse_handlers = {
@@ -43,8 +42,64 @@ class MainView:
         if missing_handlers:
             print(f"[View] Warning: Missing event handler functions: {missing_handlers}")
         else:
-            print(f"[View] All event handler functions ready")
+            print("[View] All event handler functions ready")
             
+    def create_capture_window(self, screenshot):
+        """Create fullscreen capture window with screenshot background"""
+        print("[View] Creating capture window")
+        
+        # Create main window
+        self.root = tk.Tk()
+        self.root.title("OCR Screenshot Tool - Select Area")
+        
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+        
+        # Set window properties
+        self.root.attributes('-topmost', True)
+        self.root.attributes('-alpha', 0.3)
+        self.root.configure(bg='black')
+        self.root.overrideredirect(True)
+        
+        # Create canvas
+        self.canvas = tk.Canvas(
+            self.root, 
+            width=screen_width, 
+            height=screen_height,
+            highlightthickness=0,
+            bg='black'
+        )
+        self.canvas.pack()
+        
+        # Set screenshot as background
+        self.bg_image = ImageTk.PhotoImage(screenshot)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.bg_image)
+        
+        # Bind events
+        self._bind_mouse_events_to_canvas()
+        self._bind_keyboard_events_to_root()
+        
+        # Set focus
+        self.root.focus_set()
+        
+        # Show instruction text
+        self.canvas.create_text(
+            screen_width//2, 50, 
+            text="拖拽鼠标框选需要OCR识别的区域，回车开始识别，ESC取消", 
+            fill='white', 
+            font=('Arial', 16)
+        )
+        
+        print("[View] Capture window created successfully")
+        
+    def start_main_loop(self):
+        """Start tkinter main loop"""
+        if self.root:
+            print("[View] Starting main loop")
+            self.root.mainloop()
+        
     def _bind_mouse_events_to_canvas(self):
         """
         Bind mouse events to Canvas - Solve coordinate system issues
@@ -58,21 +113,17 @@ class MainView:
         print(f"[View] Binding mouse events to Canvas")
         
         if not self.canvas:
-            print(f"[View] Error: Canvas not created")
+            print("[View] Error: Canvas not created")
             return
         
-        # Bind mouse events to Canvas using injected handler functions
         if self._mouse_handlers['down']:
             self.canvas.bind('<Button-1>', self._mouse_handlers['down'])
-            print(f"[View] Mouse down event bound to Canvas")
         
         if self._mouse_handlers['drag']:
             self.canvas.bind('<B1-Motion>', self._mouse_handlers['drag'])
-            print(f"[View] Mouse drag event bound to Canvas")
         
         if self._mouse_handlers['up']:
             self.canvas.bind('<ButtonRelease-1>', self._mouse_handlers['up'])
-            print(f"[View] Mouse release event bound to Canvas")
     
     def _bind_keyboard_events_to_root(self):
         """
@@ -87,7 +138,7 @@ class MainView:
         print(f"[View] Binding keyboard events to Root window")
         
         if not self.root:
-            print(f"[View] Error: Root window not created")
+            print("[View] Error: Root window not created")
             return
         
         # Bind keyboard events to Root window using injected handler functions
@@ -100,11 +151,54 @@ class MainView:
             print(f"[View] Enter key event bound to Root window")
             
     def delete_current_rect(self):
-        if self.rect_id:
+        """Delete current selection rectangle"""
+        if self.rect_id and self.canvas:
             self.canvas.delete(self.rect_id)
+            self.rect_id = None
     
     def draw_rect(self, start_x, start_y, end_x, end_y):
-        self.rect_id = self.canvas.create_rectangle(
-            start_x, start_y, end_x, end_y,
-            outline='red', width=2, fill='', stipple='gray50'
+        """Draw selection rectangle"""
+        if self.canvas:
+            self.rect_id = self.canvas.create_rectangle(
+                start_x, start_y, end_x, end_y,
+                outline='red', width=2, fill='', stipple='gray50'
+            )
+        else:
+            print("[View] Error: Canvas not available for drawing rectangle")
+        
+    def show_selection_info(self, width, height):
+        """Display selection area information"""
+        if not self.canvas or not self.root:
+            print("[View] Error: Canvas or Root not available")
+            return
+        
+        # Remove previous info text if exists
+        if hasattr(self, 'info_text_id') and self.info_text_id:
+            self.canvas.delete(self.info_text_id)
+        
+        # Display new selection info
+        screen_center_x = self.root.winfo_screenwidth() // 2
+        self.info_text_id = self.canvas.create_text(
+            screen_center_x, 100,
+            text=f"已选择区域: {width}x{height} 像素\n按回车开始OCR识别，ESC取消",
+            fill='yellow',
+            font=('Arial', 14)
         )
+        print(f"[View] Selection info displayed: {width}x{height} pixels")
+
+    def clear_selection_info(self):
+        """Clear selection area information"""
+        if hasattr(self, 'info_text_id') and self.info_text_id:
+            self.canvas.delete(self.info_text_id)
+            self.info_text_id = None
+            
+    def close_capture_window(self):
+        """Close capture window"""
+        if self.root:
+            print("[View] Closing capture window")
+            self.root.quit()
+            self.root.destroy()
+            self.root = None
+            self.canvas = None
+            self.bg_image = None
+            self.rect_id = None
