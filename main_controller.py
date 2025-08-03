@@ -1,7 +1,8 @@
-from main_view import MainView
+import threading
+import time
 import keyboard
 import pyautogui
-import time
+from main_view import MainView
 
 class MainController:
     def __init__(self):
@@ -23,13 +24,23 @@ class MainController:
         
         self.mainView.setup_event_handlers(event_handlers)
         
-        # Register hotkey
-        keyboard.add_hotkey('f1', self.start_screenshot)
         print("[Controller] OCR screenshot tool initialized")
         
+    def _setup_hotkey(self):
+        """Setup hotkey monitoring in separate thread"""
+        keyboard.add_hotkey('f1', self.start_screenshot)
+        print("[Controller] F1 hotkey registered")
+        
+        # Keep hotkey monitoring active
+        try:
+            keyboard.wait()  # Wait for hotkey events
+        except KeyboardInterrupt:
+            print("[Controller] Hotkey monitoring stopped")
+    
     def start_screenshot(self):
         """Start screenshot capture process"""
         if self.is_capturing:
+            print("[Controller] Screenshot already in progress, skipping")
             return
             
         print("[Controller] Starting screenshot capture")
@@ -40,11 +51,10 @@ class MainController:
         
         # Take full screen screenshot
         self.screenshot = pyautogui.screenshot()
-        print("[Controller] Screenshot captured")
+        print(f"[Controller] Screenshot captured, size: {self.screenshot.size}")
         
-        # Create capture window through view
-        self.mainView.create_capture_window(self.screenshot)
-        self.mainView.start_main_loop()
+        # Create capture window through view (execute in main thread)
+        self.mainView.root.after(0, lambda: self.mainView.create_capture_window(self.screenshot))
         
     def on_mouse_down(self, event):
         """Handle mouse down event"""
@@ -71,56 +81,108 @@ class MainController:
             bottom = max(self.start_y, end_y)
             
             # Validate selection size
-            if abs(right - left) > 5 and abs(bottom - top) > 5:
+            width = abs(right - left)
+            height = abs(bottom - top)
+            
+            if width > 5 and height > 5:
                 self.selected_area = (left, top, right, bottom)
-                
-                width = right - left
-                height = bottom - top
-                
+                print(f"[Controller] Valid area selected: {width}x{height} pixels")
                 self.mainView.show_selection_info(width, height)
-                print(f"[Controller] Area selected: {width}x{height} pixels")
+            else:
+                print(f"[Controller] Area too small: {width}x{height} pixels (minimum 5x5)")
                 
     def on_keyboard_cancel(self, event):
         """Handle ESC key - cancel operation"""
-        print("[Controller] Cancel operation")
+        print("[Controller] Cancel operation triggered")
         self.cancel_screenshot()
         
     def on_keyboard_confirm(self, event):
         """Handle Enter key - confirm selection"""
-        print("[Controller] Confirm selection")
+        print("[Controller] Confirm selection triggered")
         if self.selected_area:
             print(f"[Controller] Processing selected area: {self.selected_area}")
-            # TODO: Process OCR here
-            self.close_capture_window()
+            self.process_selected_area()
         else:
-            print("[Controller] No area selected")
+            print("[Controller] No area selected, cancelling")
             self.cancel_screenshot()
             
+    def process_selected_area(self):
+        """Process selected screenshot area"""
+        print("[Controller] Starting to process selected area")
+        
+        # Add validation with clear error messages
+        if not self.screenshot:
+            raise ValueError("No screenshot available - this should not happen")
+        
+        if not self.selected_area:
+            raise ValueError("No area selected - this should not happen")
+        
+        print(f"[Controller] Screenshot size: {self.screenshot.size}")
+        print(f"[Controller] Selected area: {self.selected_area}")
+        
+        # Extract selected area from screenshot
+        cropped_image = self.screenshot.crop(self.selected_area)
+        print(f"[Controller] Cropped image size: {cropped_image.size}")
+        
+        # Close capture window first (only UI cleanup)
+        print("[Controller] Closing capture window")
+        self.close_capture_window()
+        
+        # Show screenshot preview in new window
+        print("[Controller] Showing screenshot preview")
+        self.mainView.show_screenshot_preview(cropped_image, self.selected_area)
+        
+        # Reset controller state after preview is shown
+        print("[Controller] Resetting controller state")
+        self.reset_controller_state()
+         
     def cancel_screenshot(self):
         """Cancel screenshot operation"""
         print("[Controller] Screenshot operation cancelled")
         self.close_capture_window()
+        self.reset_controller_state()
         
     def close_capture_window(self):
-        """Close capture window and reset state"""
-        self.mainView.close_capture_window()
+        """Close capture window (UI only)"""
+        print("[Controller] Closing capture window")
+        
+        # Close view window - this might fail if window is already closed
+        if self.mainView:
+            self.mainView.close_capture_window()
+        
+        # Only reset capturing flag
         self.is_capturing = False
+        
+        print("[Controller] Capture window closed")
+
+    def reset_controller_state(self):
+        """Reset controller state data"""
+        print("[Controller] Resetting controller state")
+        
         self.start_x = None
         self.start_y = None
         self.selected_area = None
         self.screenshot = None
-        print("[Controller] Capture window closed, state reset")
+        
+        print("[Controller] Controller state reset")
 
     def run(self):
         """Run OCR screenshot tool"""
+        print("[Controller] OCR screenshot tool running...")
+        print("Press F1 to start screenshot and OCR recognition")
+        print("Press Ctrl+C to exit")
+        
+        # Create main window
+        self.mainView.create_main_window()
+        
+        # Start hotkey monitoring in separate thread
+        hotkey_thread = threading.Thread(target=self._setup_hotkey, daemon=True)
+        hotkey_thread.start()
+        
+        # Start main event loop
         try:
-            print("[Controller] OCR screenshot tool running...")
-            print("Press F1 to start screenshot and OCR recognition")
-            print("Press Ctrl+C to exit")
-            
-            keyboard.wait('ctrl+c')
-            
+            self.mainView.start_main_loop()
         except KeyboardInterrupt:
-            print("\n[Controller] Program exited")
-        except Exception as e:
-            print(f"[Controller] Program error: {e}")
+            print("\n[Controller] Program exited by user")
+        finally:
+            self.mainView.close_all_windows()
