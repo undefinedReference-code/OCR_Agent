@@ -257,8 +257,8 @@ class MainView:
         
         # Set window size (wider to accommodate OCR results)
         window_width = max(display_width + 500, 1000)  # Minimum width 1000, extra 500 for OCR
-        window_height = max(display_height + 120, 600)  # Minimum height 600
-        
+        window_height = max(display_height, 1000)  # Minimum height 1000
+
         # Center window on screen
         screen_width = self.preview_window.winfo_screenwidth()
         screen_height = self.preview_window.winfo_screenheight()
@@ -387,6 +387,9 @@ class MainView:
         # Set window properties
         self.preview_window.attributes('-topmost', True)
         self.preview_window.focus_set()
+        
+        # 强制更新布局
+        self.preview_window.update_idletasks()
         
         print(f"[View] Screenshot preview window created: {img_width}x{img_height} pixels")
     
