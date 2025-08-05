@@ -8,7 +8,7 @@ from ocr_service import OCRService
 class MainController:
     def __init__(self):
         self.mainView = MainView()
-        self.ocrService = OCRService()  # Add OCR service
+        self.ocrService = OCRService()
         self.screenshot = None
         self.start_x = None
         self.start_y = None
@@ -20,7 +20,6 @@ class MainController:
             'mouse_down': self.on_mouse_down,
             'mouse_drag': self.on_mouse_drag,
             'mouse_up': self.on_mouse_up,
-            'keyboard_cancel': self.on_keyboard_cancel,
             'keyboard_confirm': self.on_keyboard_confirm
         }
         
@@ -30,14 +29,46 @@ class MainController:
         
     def _setup_hotkey(self):
         """Setup hotkey monitoring in separate thread"""
+        # Register F1 for screenshot
         keyboard.add_hotkey('f1', self.start_screenshot)
         print("[Controller] F1 hotkey registered")
+        
+        # Register ESC for cancel/exit (global hotkey)
+        keyboard.add_hotkey('esc', self.global_cancel)
+        print("[Controller] ESC hotkey registered (global cancel)")
         
         # Keep hotkey monitoring active
         try:
             keyboard.wait()  # Wait for hotkey events
         except KeyboardInterrupt:
             print("[Controller] Hotkey monitoring stopped")
+    
+    def global_cancel(self):
+        """Handle global ESC key - cancel operation or just show status"""
+        if self.is_capturing:
+            print("[Controller] Global ESC - Cancelling screenshot operation")
+            self.cancel_screenshot()
+        else:
+            print("[Controller] Global ESC - No active operation to cancel")
+            print("[Controller] Status: Ready for F1 screenshot")
+            # 可选：显示当前状态信息
+            self._show_status_info()
+    
+    def _show_status_info(self):
+        """Show current application status"""
+        status_messages = [
+            "[Controller] === OCR Screenshot Tool Status ===",
+            f"[Controller] Capturing: {'Yes' if self.is_capturing else 'No'}",
+            f"[Controller] Screenshot ready: {'Yes' if self.screenshot else 'No'}",
+            f"[Controller] Selected area: {'Yes' if self.selected_area else 'No'}",
+            "[Controller] Commands:",
+            "[Controller]   F1  - Start screenshot",
+            "[Controller]   ESC - Cancel operation",
+            "[Controller] ==============================="
+        ]
+        
+        for message in status_messages:
+            print(message)
     
     def start_screenshot(self):
         """Start screenshot capture process"""
@@ -92,11 +123,6 @@ class MainController:
                 self.mainView.show_selection_info(width, height)
             else:
                 print(f"[Controller] Area too small: {width}x{height} pixels (minimum 5x5)")
-                
-    def on_keyboard_cancel(self, event):
-        """Handle ESC key - cancel operation"""
-        print("[Controller] Cancel operation triggered")
-        self.cancel_screenshot()
         
     def on_keyboard_confirm(self, event):
         """Handle Enter key - confirm selection"""
@@ -188,6 +214,7 @@ class MainController:
         """Run OCR screenshot tool"""
         print("[Controller] OCR screenshot tool running...")
         print("Press F1 to start screenshot and OCR recognition")
+        print("Press ESC to cancel operation or check status")
         print("Press Ctrl+C to exit")
         
         # Create main window
