@@ -1,6 +1,6 @@
 import re
 
-def _force_convert_math_format(self, text: str) -> str:
+def postprocess_ocr_result(text: str) -> str:
     """Simplified math formula format conversion"""
     print("[OCR] Converting LaTeX math format to Markdown format...")
     
