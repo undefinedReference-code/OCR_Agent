@@ -4,40 +4,76 @@ import keyboard
 import pyautogui
 from main_view import MainView
 from ocr_service import OCRService
+from system_tray import SystemTrayManager
 
 class MainController:
     def __init__(self):
         self.mainView = MainView()
-        self.ocrService = OCRService()  # Add OCR service
+        self.ocrService = OCRService()
+        self.system_tray = SystemTrayManager(self)
+        
         self.screenshot = None
         self.start_x = None
         self.start_y = None
         self.selected_area = None
         self.is_capturing = False
+        self.is_running = True
         
         # Setup event handlers
         event_handlers = {
             'mouse_down': self.on_mouse_down,
             'mouse_drag': self.on_mouse_drag,
             'mouse_up': self.on_mouse_up,
-            'keyboard_cancel': self.on_keyboard_cancel,
             'keyboard_confirm': self.on_keyboard_confirm
         }
         
         self.mainView.setup_event_handlers(event_handlers)
         
-        print("[Controller] OCR screenshot tool initialized")
+        print("[Controller] OCR screenshot tool initialized with system tray")
         
     def _setup_hotkey(self):
         """Setup hotkey monitoring in separate thread"""
+        # Register F1 for screenshot
         keyboard.add_hotkey('f1', self.start_screenshot)
         print("[Controller] F1 hotkey registered")
         
+        # Register ESC for cancel/exit (global hotkey)
+        keyboard.add_hotkey('esc', self.global_cancel)
+        print("[Controller] ESC hotkey registered (global cancel)")
+        
         # Keep hotkey monitoring active
         try:
-            keyboard.wait()  # Wait for hotkey events
+            while self.is_running:
+                time.sleep(0.1)  # Avoid blocking with keyboard.wait()
         except KeyboardInterrupt:
             print("[Controller] Hotkey monitoring stopped")
+    
+    def global_cancel(self):
+        """Handle global ESC key - cancel operation or show status"""
+        if self.is_capturing:
+            print("[Controller] Global ESC - Cancelling screenshot operation")
+            self.cancel_screenshot()
+        else:
+            print("[Controller] Global ESC - No active operation to cancel")
+            print("[Controller] Status: Ready for F1 screenshot")
+            self._show_status_info()
+    
+    def _show_status_info(self):
+        """Show current application status"""
+        status_messages = [
+            "[Controller] === OCR Screenshot Tool Status ===",
+            f"[Controller] Capturing: {'Yes' if self.is_capturing else 'No'}",
+            f"[Controller] Screenshot ready: {'Yes' if self.screenshot else 'No'}",
+            f"[Controller] Selected area: {'Yes' if self.selected_area else 'No'}",
+            "[Controller] Commands:",
+            "[Controller]   F1  - Start screenshot",
+            "[Controller]   ESC - Cancel operation",
+            "[Controller]   Right-click tray icon - Menu",
+            "[Controller] ==============================="
+        ]
+        
+        for message in status_messages:
+            print(message)
     
     def start_screenshot(self):
         """Start screenshot capture process"""
@@ -56,8 +92,9 @@ class MainController:
         print(f"[Controller] Screenshot captured, size: {self.screenshot.size}")
         
         # Create capture window through view (execute in main thread)
-        self.mainView.root.after(0, lambda: self.mainView.create_capture_window(self.screenshot))
-        
+        if self.mainView.root:
+            self.mainView.root.after(0, lambda: self.mainView.create_capture_window(self.screenshot))
+    
     def on_mouse_down(self, event):
         """Handle mouse down event"""
         self.start_x = event.x
@@ -92,11 +129,6 @@ class MainController:
                 self.mainView.show_selection_info(width, height)
             else:
                 print(f"[Controller] Area too small: {width}x{height} pixels (minimum 5x5)")
-                
-    def on_keyboard_cancel(self, event):
-        """Handle ESC key - cancel operation"""
-        print("[Controller] Cancel operation triggered")
-        self.cancel_screenshot()
         
     def on_keyboard_confirm(self, event):
         """Handle Enter key - confirm selection"""
@@ -183,24 +215,57 @@ class MainController:
         self.screenshot = None
         
         print("[Controller] Controller state reset")
-
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        print("[Controller] Cleaning up resources")
+        self.is_running = False
+        
+        # Cleanup view
+        if self.mainView:
+            self.mainView.close_all_windows()
+        
+        # Remove hotkeys
+        try:
+            keyboard.unhook_all()
+        except:
+            pass
+        
+    def quit_threaded(self):
+        self.is_running = False
+        self.mainView.root.quit()
+    
     def run(self):
-        """Run OCR screenshot tool"""
-        print("[Controller] OCR screenshot tool running...")
+        """Run OCR screenshot tool with system tray"""
+        print("[Controller] OCR screenshot tool starting...")
+        print("Application will run in system tray")
         print("Press F1 to start screenshot and OCR recognition")
-        print("Press Ctrl+C to exit")
+        print("Press ESC to cancel operation or check status")
+        print("Right-click tray icon for menu options")
         
-        # Create main window
+        # Create hidden main window (for event handling)
         self.mainView.create_main_window()
+        self.mainView.root.withdraw()  # Hide main window
         
-        # Start hotkey monitoring in separate thread
+        # Start hotkey monitoring thread
         hotkey_thread = threading.Thread(target=self._setup_hotkey, daemon=True)
         hotkey_thread.start()
         
-        # Start main event loop
+        # Start system tray thread
+        tray_thread = threading.Thread(target=self.system_tray.run_tray, daemon=False)
+        tray_thread.start()
+        
+        # Keep main thread running to handle Tkinter events
         try:
-            self.mainView.start_main_loop()
+            while self.is_running and self.system_tray.is_running:
+                if self.mainView.root:
+                    self.mainView.root.mainloop()
+                time.sleep(0.01)  # Reduce CPU usage
         except KeyboardInterrupt:
-            print("\n[Controller] Program exited by user")
+            print("\n[Controller] Program interrupted by user")
+        except Exception as e:
+            print(f"[Controller] Error in main loop: {e}")
         finally:
-            self.mainView.close_all_windows()
+            self.cleanup()
+            
+        print("[Controller] Application terminated")

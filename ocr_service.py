@@ -3,7 +3,7 @@ import base64
 import threading
 from io import BytesIO
 from typing import Callable, Optional
-
+from ocr_postprocess import postprocess_ocr_result
 class OCRService:
     def __init__(self):
         # Ollama API configuration
@@ -72,7 +72,7 @@ Please strictly follow the above format requirements for output."""
                 
                 # Call Ollama for OCR
                 result = self.call_ollama_ocr(image_base64)
-                
+                result = postprocess_ocr_result(result)
                 # Execute callback with result
                 callback(result)
                 
